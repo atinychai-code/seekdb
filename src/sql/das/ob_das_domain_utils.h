@@ -53,7 +53,17 @@ public:
   TO_STRING_KV(K_(row_idx), K_(is_fts_index_aux), K_(helper), K_(is_inited),
                "row_count", rows_.count());
 private:
+  void try_rebuild_helper();
+  // Rebuild the tokenizer parser helper every K_REBUILD_DOC_CNT documents so that
+  // the arena-backed cached token iterator does not grow unboundedly across documents.
+  static constexpr int64_t K_REBUILD_DOC_CNT = 256;
   lib::MemoryContext merge_memctx_;
+  lib::MemoryContext helper_memctx_;
+  int64_t doc_cnt_;
+  char parser_name_buf_[128];
+  int32_t parser_name_len_;
+  char parser_properties_buf_[512];
+  int32_t parser_properties_len_;
   ObDomainIndexRow rows_;
   uint64_t row_idx_;
   bool is_fts_index_aux_;

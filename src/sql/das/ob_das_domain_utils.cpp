@@ -44,7 +44,12 @@ ObExprOperatorType ObFTIndexRowCache::FTS_INDEX_EXPR_TYPE[] = {T_FUN_SYS_WORD_SE
 ObExprOperatorType ObFTIndexRowCache::FTS_DOC_WORD_EXPR_TYPE[] = {T_FUN_SYS_DOC_ID, T_FUN_SYS_WORD_SEGMENT, T_FUN_SYS_WORD_COUNT, T_FUN_SYS_DOC_LENGTH};
 
 ObFTIndexRowCache::ObFTIndexRowCache()
-  : rows_(),
+  : merge_memctx_(nullptr),
+    helper_memctx_(nullptr),
+    doc_cnt_(0),
+    parser_name_len_(0),
+    parser_properties_len_(0),
+    rows_(),
     row_idx_(0),
     is_fts_index_aux_(true),
     helper_(),
@@ -68,11 +73,29 @@ int ObFTIndexRowCache::init(
   if (OB_UNLIKELY(is_inited_)) {
     ret = OB_INIT_TWICE;
   } else if (OB_FAIL(CURRENT_CONTEXT->CREATE_CONTEXT(merge_memctx_, param))) {
-  } else if (OB_FAIL(helper_.init(&(merge_memctx_->get_arena_allocator()), parser_name, parser_properties))) {
+  } else if (OB_FAIL(CURRENT_CONTEXT->CREATE_CONTEXT(helper_memctx_, param))) {
+  } else if (OB_UNLIKELY(parser_name.length() > static_cast<int64_t>(sizeof(parser_name_buf_)))) {
+    ret = OB_INVALID_ARGUMENT;
+  } else if (OB_UNLIKELY(parser_properties.length() > static_cast<int64_t>(sizeof(parser_properties_buf_)))) {
+    ret = OB_INVALID_ARGUMENT;
   } else {
-    row_idx_ = 0;
-    is_fts_index_aux_ = is_fts_index_aux;
-    is_inited_ = true;
+    if (parser_name.length() > 0) {
+      memcpy(parser_name_buf_, parser_name.ptr(), parser_name.length());
+    }
+    parser_name_len_ = parser_name.length();
+    if (parser_properties.length() > 0) {
+      memcpy(parser_properties_buf_, parser_properties.ptr(), parser_properties.length());
+    }
+    parser_properties_len_ = parser_properties.length();
+    if (OB_FAIL(helper_.init(&(helper_memctx_->get_arena_allocator()),
+                             common::ObString(parser_name_len_, parser_name_buf_),
+                             common::ObString(parser_properties_len_, parser_properties_buf_)))) {
+    } else {
+      row_idx_ = 0;
+      doc_cnt_ = 0;
+      is_fts_index_aux_ = is_fts_index_aux;
+      is_inited_ = true;
+    }
   }
   if (OB_UNLIKELY(!is_inited_)) {
     reset();
@@ -88,6 +111,8 @@ int ObFTIndexRowCache::segment(const common::ObObjMeta &ft_obj_meta,
   if (OB_UNLIKELY(!is_inited_)) {
     ret = OB_NOT_INIT;
   } else if (FALSE_IT(reuse())) {
+  } else if (FALSE_IT(++doc_cnt_)) {
+  } else if (FALSE_IT(try_rebuild_helper())) {
   } else if (OB_FAIL(ObDASDomainUtils::generate_fulltext_word_rows(merge_memctx_->get_arena_allocator(),
                                                                    &helper_,
                                                                    ft_obj_meta,
@@ -123,11 +148,33 @@ void ObFTIndexRowCache::reset()
   row_idx_ = 0;
   is_fts_index_aux_ = true;
   helper_.reset();
+  doc_cnt_ = 0;
+  if (OB_NOT_NULL(helper_memctx_)) {
+    DESTROY_CONTEXT(helper_memctx_);
+    helper_memctx_ = nullptr;
+  }
   if (OB_NOT_NULL(merge_memctx_)) {
     DESTROY_CONTEXT(merge_memctx_);
     merge_memctx_ = nullptr;
   }
   is_inited_ = false;
+}
+
+void ObFTIndexRowCache::try_rebuild_helper()
+{
+  if (doc_cnt_ >= K_REBUILD_DOC_CNT) {
+    // The cached token iterator and the whole parser live in helper_memctx_'s
+    // arena. merge_memctx_ (rows) is reset per document via
+    // reset_remain_one_page(), so the parser must stay in a separate memory
+    // context that is only rolled back here. Rebuild every K_REBUILD_DOC_CNT
+    // documents to bound arena growth.
+    helper_.reset();
+    helper_memctx_->reuse();
+    helper_.init(&(helper_memctx_->get_arena_allocator()),
+                 common::ObString(parser_name_len_, parser_name_buf_),
+                 common::ObString(parser_properties_len_, parser_properties_buf_));
+    doc_cnt_ = 0;
+  }
 }
 
 void ObFTIndexRowCache::reuse()
