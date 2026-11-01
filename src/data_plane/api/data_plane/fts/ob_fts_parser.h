@@ -124,6 +124,13 @@ public:
       int64_t &word_len,
       int64_t &char_cnt,
       int64_t &word_freq) = 0;
+  /**
+   * Reuse this token iterator for a new fulltext without re-creating the parser.
+   * Dictionaries, segmenters and the analyzer pipeline are kept, only the
+   * per-document state is reset and rebound to the new fulltext. This avoids
+   * rebuilding parsers once per document on the index build / tokenize hot path.
+   */
+  virtual int reuse_segment(const char *fulltext, int64_t fulltext_len) = 0;
   DECLARE_PURE_VIRTUAL_TO_STRING;
 };
 

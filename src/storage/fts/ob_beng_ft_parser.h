@@ -50,6 +50,7 @@ public:
       int64_t &word_len,
       int64_t &char_len,
       int64_t &word_freq) override;
+  virtual int reuse_segment(const char *fulltext, int64_t fulltext_len) override;
 
   VIRTUAL_TO_STRING_KV(K_(analysis_ctx), K_(english_analyzer), KP_(token_stream), K_(is_inited));
 private:

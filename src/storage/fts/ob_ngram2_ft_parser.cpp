@@ -81,6 +81,18 @@ int ObNgram2FTParser::get_next_token(const char *&word,
   return ret;
 }
 
+int ObNgram2FTParser::reuse_segment(const char *fulltext, int64_t fulltext_len)
+{
+  int ret = OB_SUCCESS;
+  if (OB_UNLIKELY(!is_inited_)) {
+    ret = OB_NOT_INIT;
+  } else if (OB_ISNULL(fulltext) || OB_UNLIKELY(fulltext_len <= 0)) {
+    ret = OB_INVALID_ARGUMENT;
+  } else if (OB_FAIL(ngram_impl_.reinit(fulltext, fulltext_len))) {
+  }
+  return ret;
+}
+
 ObNgram2FTParserDesc::ObNgram2FTParserDesc() {}
 
 int ObNgram2FTParserDesc::segment(ObFTParserParam *param, ObITokenIterator *&iter) const
