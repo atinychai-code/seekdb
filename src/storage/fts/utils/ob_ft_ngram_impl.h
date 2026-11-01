@@ -39,6 +39,12 @@ public:
            const int64_t min,
            const int64_t max);
 
+  /**
+   * Rebind to a new fulltext while keeping cs_ and the ngram window sizes.
+   * Used when the owning parser is reused across documents.
+   */
+  int reinit(const char *const fulltext, const int64_t fulltext_len);
+
   void reset();
 
   int get_next_token(const char *&word, int64_t &word_len, int64_t &char_cnt, int64_t &word_freq);

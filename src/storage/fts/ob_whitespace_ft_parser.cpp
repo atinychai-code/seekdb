@@ -139,6 +139,21 @@ int ObSpaceFTParser::get_next_token(const char *&word,
   return ret;
 }
 
+int ObSpaceFTParser::reuse_segment(const char *fulltext, int64_t fulltext_len)
+{
+  int ret = OB_SUCCESS;
+  if (OB_UNLIKELY(!is_inited_)) {
+    ret = OB_NOT_INIT;
+  } else if (OB_ISNULL(fulltext) || OB_UNLIKELY(fulltext_len <= 0)) {
+    ret = OB_INVALID_ARGUMENT;
+  } else {
+    start_ = fulltext;
+    next_ = start_;
+    end_ = start_ + fulltext_len;
+  }
+  return ret;
+}
+
 ObWhiteSpaceFTParserDesc::ObWhiteSpaceFTParserDesc() {}
 
 int ObWhiteSpaceFTParserDesc::segment(

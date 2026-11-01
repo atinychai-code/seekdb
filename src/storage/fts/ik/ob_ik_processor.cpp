@@ -76,6 +76,26 @@ int TokenizeContext::reset_resource()
   return OB_SUCCESS;
 }
 
+int TokenizeContext::reset_for_segment(const char *fulltext, int64_t fulltext_len)
+{
+  int ret = OB_SUCCESS;
+  if (OB_ISNULL(fulltext) || fulltext_len <= 0) {
+    ret = OB_INVALID_ARGUMENT;
+  } else {
+    fulltext_ = fulltext;
+    fulltext_len_ = fulltext_len;
+    cursor_ = 0;
+    next_char_len_ = 0;
+    next_char_type_ = ObFTCharUtil::CharType::USELESS;
+    handle_size_ = 0;
+    result_list_.reset();
+    token_list_.reset();
+    if (OB_FAIL(prepare_next_char())) {
+    }
+  }
+  return ret;
+}
+
 int TokenizeContext::current_char(const char *&ch, uint8_t &char_len)
 {
   int ret = OB_SUCCESS;
