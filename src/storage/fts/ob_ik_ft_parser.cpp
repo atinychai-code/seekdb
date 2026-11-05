@@ -347,6 +347,26 @@ int ObIKFTParser::init_segmenter(const ObFTParserParam &param)
   return ret;
 }
 
+int ObIKFTParser::reuse_segment(const char *fulltext, int64_t fulltext_len)
+{
+  int ret = OB_SUCCESS;
+  if (OB_UNLIKELY(!is_inited_)) {
+    ret = OB_NOT_INIT;
+  } else if (OB_ISNULL(fulltext) || OB_UNLIKELY(fulltext_len <= 0)) {
+    ret = OB_INVALID_ARGUMENT;
+  } else if (OB_ISNULL(ctx_)) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (OB_FAIL(ctx_->reset_for_segment(fulltext, fulltext_len))) {
+  } else {
+    for (ObIIKProcessor *segmenter : segmenters_) {
+      if (OB_NOT_NULL(segmenter)) {
+        segmenter->reset_state_for_document();
+      }
+    }
+  }
+  return ret;
+}
+
 void ObIKFTParser::reset()
 {
   if (!OB_ISNULL(ctx_)) {

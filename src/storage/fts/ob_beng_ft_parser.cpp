@@ -104,6 +104,23 @@ int ObBEngFTParser::segment(
   return ret;
 }
 
+int ObBEngFTParser::reuse_segment(const char *fulltext, int64_t fulltext_len)
+{
+  int ret = OB_SUCCESS;
+  if (OB_UNLIKELY(!is_inited_)) {
+    ret = OB_NOT_INIT;
+  } else if (OB_ISNULL(fulltext) || OB_UNLIKELY(fulltext_len <= 0)) {
+    ret = OB_INVALID_ARGUMENT;
+  } else if (OB_UNLIKELY(UINT32_MAX < fulltext_len)) {
+    ret = OB_NOT_SUPPORTED;
+  } else {
+    doc_.set_string(fulltext, fulltext_len);
+    if (OB_FAIL(segment(doc_, token_stream_))) {
+    }
+  }
+  return ret;
+}
+
 void ObBEngFTParser::reset()
 {
   analysis_ctx_.reset();

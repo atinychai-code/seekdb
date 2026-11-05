@@ -223,6 +223,12 @@ private:
   ObFTParser parser_name_;
   ObAddWordFlag add_word_flag_;
   ObFTParserProperty parser_property_;
+  /**
+   * Token iterator kept alive across segment() calls so that dictionaries and
+   * segmenters are not re-created once per document on the build hot path.
+   * It is lazily created on the first segment() call and freed in reset().
+   */
+  mutable ObITokenIterator *cached_iter_ = nullptr;
   bool is_inited_;
 
 private:

@@ -40,6 +40,11 @@ public:
 
   int init();
   int reset_resource();
+  /**
+   * Rebind this context to a new fulltext and reset all per-document state.
+   * Used when a parser is reused across documents on the build hot path.
+   */
+  int reset_for_segment(const char *fulltext, int64_t fulltext_len);
 
   int get_next_token(const char *&word, int64_t &word_len, int64_t &offset, int64_t &char_cnt);
 
@@ -102,6 +107,12 @@ public:
   virtual ~ObIIKProcessor() {}
 
   int process(TokenizeContext &ctx);
+
+  /**
+   * Reset per-document state kept inside this processor. Called when the
+   * owning parser is reused for a new document; default is a no-op.
+   */
+  virtual void reset_state_for_document() {}
 
   virtual int do_process(TokenizeContext &ctx,
                          const char *ch,

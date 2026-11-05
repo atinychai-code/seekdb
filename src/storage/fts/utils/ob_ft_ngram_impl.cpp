@@ -63,6 +63,23 @@ int ObFTNgramImpl::init(const ObCharsetInfo *const cs,
   return ret;
 }
 
+int ObFTNgramImpl::reinit(const char *const fulltext, const int64_t fulltext_len)
+{
+  int ret = OB_SUCCESS;
+  if (OB_UNLIKELY(!is_inited_)) {
+    ret = OB_NOT_INIT;
+  } else if (OB_ISNULL(fulltext) || OB_UNLIKELY(fulltext_len <= 0)) {
+    ret = OB_INVALID_ARGUMENT;
+  } else {
+    fulltext_start_ = fulltext;
+    fulltext_end_ = fulltext + fulltext_len;
+    cur_ = fulltext_start_;
+    window_.reset();
+    // cs_, window_.min_ngram_size_ and window_.max_ngram_size_ are kept.
+  }
+  return ret;
+}
+
 void ObFTNgramImpl::reset()
 {
   cs_ = nullptr;
