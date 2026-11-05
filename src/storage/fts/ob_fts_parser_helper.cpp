@@ -423,6 +423,15 @@ int ObFTParseHelper::segment(
     }
     if (OB_SUCC(ret)) {
       doc_length = add_word.get_add_word_count();
+      if (release_after_segment_) {
+        // Conservative mode (index build): release the cached iterator so the
+        // next document starts with a fresh parser, same as the pre-optimization
+        // behavior. Tokenize/query paths keep the reuse optimization.
+        ObFTParserParam free_param;
+        free_param.allocator_ = allocator_;
+        parser_desc_->free_token_iter(&free_param, cached_iter_);
+        cached_iter_ = nullptr;
+      }
     }
   }
   LOG_DEBUG("ft parse segment", K(ret), K(type), K(add_word_flag_), K(parser_name_),

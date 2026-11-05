@@ -217,6 +217,13 @@ private:
       common::ObIAllocator &allocator,
       ObAddWord &add_word);
   int set_add_word_flag(const ObIFTParserDesc &ftparser_desc);
+
+  /**
+   * When true, the cached token iterator is released after every segment()
+   * call, reverting to the create-per-document behavior. Used by the index
+   * build (DAS DML) hot path as a conservative fallback.
+   */
+  void set_release_after_segment(bool release) { release_after_segment_ = release; }
 private:
   common::ObIAllocator *allocator_;
   const ObIFTParserDesc *parser_desc_;
@@ -229,6 +236,7 @@ private:
    * It is lazily created on the first segment() call and freed in reset().
    */
   mutable ObITokenIterator *cached_iter_ = nullptr;
+  bool release_after_segment_ = false;
   bool is_inited_;
 
 private:

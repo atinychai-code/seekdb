@@ -906,6 +906,10 @@ int ObFTDMLIterator::init(
     switch (mode_) {
       case ObDomainDMLMode::DOMAIN_DML_MODE_DEFAULT: {
         if (OB_FAIL(ft_parse_helper_.init(&allocator_, parser_name, parser_properties))) {
+        } else {
+          // Index build: use the conservative create-per-document path for the
+          // tokenizer to avoid cross-document reuse during fulltext index DDL.
+          ft_parse_helper_.set_release_after_segment(true);
         }
         break;
       }
