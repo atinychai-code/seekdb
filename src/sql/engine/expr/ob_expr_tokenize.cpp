@@ -75,13 +75,62 @@ int ObExprTokenize::eval_tokenize(const ObExpr &expr, ObEvalCtx &ctx, ObDatum &e
   return ret;
 }
 
+namespace {
+
+/**
+ * Per-thread tokenizer cache for the TOKENIZE expression.
+ *
+ * The expression used to build a fresh helper for every statement, which meant
+ * re-loading the three IK dictionaries and rebuilding the segmenters on every
+ * query. The helper is bound to a thread-owned arena so its memory outlives a
+ * single statement, and it is rebuilt only when the parser name or the parser
+ * properties change.
+ */
+class ObFTTokenizeHelperCache
+{
+public:
+  int get(const ObString &parser_name,
+          const ObString &properties,
+          storage::ObFTParseHelper *&helper)
+  {
+    int ret = OB_SUCCESS;
+    if (!inited_ || parser_name != parser_name_ || properties != properties_) {
+      helper_.reset();
+      inited_ = false;
+      if (OB_FAIL(helper_.init(&alloc_, parser_name, properties))) {
+      } else {
+        parser_name_ = parser_name;
+        properties_ = properties;
+        inited_ = true;
+      }
+    }
+    if (OB_SUCC(ret)) {
+      helper = &helper_;
+    }
+    return ret;
+  }
+private:
+  common::ObArenaAllocator alloc_;
+  storage::ObFTParseHelper helper_;
+  ObString parser_name_;
+  ObString properties_;
+  bool inited_ = false;
+};
+
+thread_local ObFTTokenizeHelperCache g_tokenize_helper_cache;
+
+}  // namespace
+
 int ObExprTokenize::tokenize_fulltext(const TokenizeParam &param,
                                       TokenizeParam::OUTPUT_MODE mode,
                                       ObIAllocator &allocator,
                                       ObIJsonBase *&result)
 {
   int ret = OB_SUCCESS;
-  storage::ObFTParseHelper tokenize_helper;
+  storage::ObFTParseHelper *tokenize_helper = nullptr;
+  // The cached helper owns its own arena, so the per-statement allocator is no
+  // longer used here.
+  static_cast<void>(allocator);
   const int64_t ft_word_bkt_cnt = MIN(MAX(param.fulltext_.length() / 2, 2), 997);
   int64_t doc_len = 0;
   storage::ObFTWordMap token_map;
@@ -90,11 +139,13 @@ int ObExprTokenize::tokenize_fulltext(const TokenizeParam &param,
 
   if (TokenizeParam::OUTPUT_MODE::DEFAULT != mode && TokenizeParam::OUTPUT_MODE::ALL != mode) {
     ret = OB_INVALID_ARGUMENT;
-  } else if (OB_FAIL(tokenize_helper.init(&allocator, param.parser_name_, param.properties_))) {
+  } else if (OB_FAIL(g_tokenize_helper_cache.get(param.parser_name_,
+                                                 param.properties_,
+                                                 tokenize_helper))) {
   } else if (OB_FAIL(token_map.create(ft_word_bkt_cnt, common::ObMemAttr("FTWordMap")))) {
   } else if (
       (0 != param.fulltext_.length())
-      && OB_FAIL(tokenize_helper.segment(
+      && OB_FAIL(tokenize_helper->segment(
                      param.meta_,
                      param.fulltext_.ptr(),
                      param.fulltext_.length(),
@@ -103,14 +154,14 @@ int ObExprTokenize::tokenize_fulltext(const TokenizeParam &param,
   } else {
     switch (param.output_mode_) {
     case TokenizeParam::OUTPUT_MODE::DEFAULT: {
-      if (OB_FAIL(tokenize_helper.make_token_array_json(token_map, result))) {
+      if (OB_FAIL(tokenize_helper->make_token_array_json(token_map, result))) {
       } else {
         // pass
       }
       break;
     }
     case TokenizeParam::OUTPUT_MODE::ALL: {
-      if (OB_FAIL(tokenize_helper.make_detail_json(token_map, doc_len, result))) {
+      if (OB_FAIL(tokenize_helper->make_detail_json(token_map, doc_len, result))) {
       } else {
         // pass
       }

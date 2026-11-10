@@ -285,12 +285,27 @@ int ObFTParseHelper::segment(
     param.min_ngram_size_ = property.min_ngram_token_size_;
     param.max_ngram_size_ = property.max_ngram_token_size_;
 
+    static int64_t g_ft_calls = 0;
+    static int64_t g_ft_hits = 0;
+    static int64_t g_ft_misses = 0;
+    ++g_ft_calls;
+    if (reuse_cache && OB_NOT_NULL(cached_iter)) {
+      ++g_ft_hits;
+    } else if (reuse_cache) {
+      ++g_ft_misses;
+    }
+    if (0 == (g_ft_calls % 1000)) {
+      LOG_INFO("ft segment reuse stats", K(g_ft_calls), K(g_ft_hits), K(g_ft_misses),
+               "reuse_cache", reuse_cache);
+    }
     if (reuse_cache) {
       // Reuse the cached tokenizer across documents. Its memory comes from the
       // dedicated parser arena, so recycling the caller's allocator between
       // row batches no longer frees it underneath us.
       if (OB_NOT_NULL(cached_iter)) {
-        if (OB_FAIL(cached_iter->reuse_segment(ft, ft_len))) {
+        const int reuse_ret = cached_iter->reuse_segment(ft, ft_len);
+        if (OB_FAIL(reuse_ret)) {
+          LOG_INFO("ft segment reuse failed, rebuilding", K(reuse_ret));
           parser_desc->free_token_iter(&param, cached_iter);
           cached_iter = nullptr;
           ret = OB_SUCCESS;
