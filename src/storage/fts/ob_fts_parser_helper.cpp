@@ -263,7 +263,10 @@ int ObFTParseHelper::segment(
     const char *ft,
     const int64_t ft_len,
     common::ObIAllocator &allocator,
-    ObAddWord &add_word)
+    common::ObIAllocator &parser_allocator,
+    ObAddWord &add_word,
+    ObITokenIterator *&cached_iter,
+    const bool reuse_cache)
 {
   int ret = OB_SUCCESS;
   if (OB_UNLIKELY(parser_version < 0 || nullptr == parser_desc || nullptr == cs || nullptr == ft || 0 >= ft_len)) {
@@ -271,7 +274,7 @@ int ObFTParseHelper::segment(
   } else {
     ObFTParserParam param;
     ObITokenIterator *iter = nullptr;
-    param.allocator_ = &allocator;
+    param.allocator_ = &parser_allocator;
     param.cs_ = cs;
     param.fulltext_ = ft;
     param.ft_length_ = ft_len;
@@ -282,10 +285,28 @@ int ObFTParseHelper::segment(
     param.min_ngram_size_ = property.min_ngram_token_size_;
     param.max_ngram_size_ = property.max_ngram_token_size_;
 
-    if (OB_FAIL(parser_desc->segment(&param, iter))) {
+    if (reuse_cache) {
+      // Reuse the cached tokenizer across documents. Its memory comes from the
+      // dedicated parser arena, so recycling the caller's allocator between
+      // row batches no longer frees it underneath us.
+      if (OB_NOT_NULL(cached_iter)) {
+        if (OB_FAIL(cached_iter->reuse_segment(ft, ft_len))) {
+          parser_desc->free_token_iter(&param, cached_iter);
+          cached_iter = nullptr;
+          ret = OB_SUCCESS;
+        }
+      }
+      if (OB_SUCC(ret) && OB_ISNULL(cached_iter)) {
+        if (OB_FAIL(parser_desc->segment(&param, cached_iter))) {
+        }
+      }
+      iter = cached_iter;
+    } else if (OB_FAIL(parser_desc->segment(&param, iter))) {
     } else if (OB_ISNULL(iter)) {
       ret = OB_ERR_UNEXPECTED;
-    } else {
+    }
+
+    if (OB_SUCC(ret) && OB_NOT_NULL(iter)) {
       const char *word = nullptr;
       int64_t word_len = 0;
       int64_t char_cnt = 0;
@@ -301,7 +322,7 @@ int ObFTParseHelper::segment(
         ret = OB_SUCCESS;
       }
     }
-    if (OB_NOT_NULL(iter)) {
+    if (!reuse_cache && OB_NOT_NULL(iter)) {
       parser_desc->free_token_iter(&param, iter);
       iter = nullptr;
     }
@@ -352,12 +373,13 @@ int ObFTParseHelper::init(
 
 void ObFTParseHelper::reset()
 {
-  if (OB_NOT_NULL(cached_iter_) && OB_NOT_NULL(parser_desc_) && OB_NOT_NULL(allocator_)) {
+  if (OB_NOT_NULL(cached_iter_) && OB_NOT_NULL(parser_desc_)) {
     ObFTParserParam param;
-    param.allocator_ = allocator_;
+    param.allocator_ = &iter_alloc_;
     parser_desc_->free_token_iter(&param, cached_iter_);
     cached_iter_ = nullptr;
   }
+  iter_alloc_.reset();
   parser_desc_ = nullptr;
   allocator_ = nullptr;
   add_word_flag_.clear();
@@ -385,6 +407,14 @@ int ObFTParseHelper::segment(
   } else {
     words.reuse();
     ObAddWord add_word(parser_property_, meta, add_word_flag_, *allocator_, words);
+    if (!release_after_segment_ && OB_NOT_NULL(cached_iter_) && cached_coll_type_ != type) {
+      ObFTParserParam param;
+      param.allocator_ = &iter_alloc_;
+      parser_desc_->free_token_iter(&param, cached_iter_);
+      cached_iter_ = nullptr;
+      iter_alloc_.reset();
+    }
+    cached_coll_type_ = type;
     if (OB_FAIL(segment(
                     parser_property_,
                     parser_name_.get_parser_version(),
@@ -393,7 +423,10 @@ int ObFTParseHelper::segment(
                     fulltext,
                     fulltext_len,
                     *allocator_,
-                    add_word))) {
+                    iter_alloc_,
+                    add_word,
+                    cached_iter_,
+                    !release_after_segment_))) {
     } else {
       doc_length = add_word.get_add_word_count();
     }

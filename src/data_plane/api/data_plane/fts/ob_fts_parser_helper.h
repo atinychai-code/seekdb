@@ -18,6 +18,7 @@
 #define OB_FTS_PARSER_HELPER_H_
 
 #include "lib/allocator/ob_fifo_allocator.h"
+#include "lib/allocator/page_arena.h"
 #include "lib/charset/ob_charset.h"
 #include "lib/string/ob_string.h"
 #include "object/ob_object.h"
@@ -222,7 +223,10 @@ private:
       const char *fulltext,
       const int64_t fulltext_len,
       common::ObIAllocator &allocator,
-      ObAddWord &add_word);
+      common::ObIAllocator &parser_allocator,
+      ObAddWord &add_word,
+      ObITokenIterator *&cached_iter,
+      const bool reuse_cache);
   int set_add_word_flag(const ObIFTParserDesc &ftparser_desc);
 private:
   common::ObIAllocator *allocator_;
@@ -237,6 +241,19 @@ private:
    */
   mutable ObITokenIterator *cached_iter_ = nullptr;
   bool release_after_segment_ = false;
+  /**
+   * Dedicated arena that owns the cached token iterator (and everything the
+   * parser builds, e.g. dictionary wrappers and segmenters). Keeping it out of
+   * the caller's allocator is what makes cross-document reuse safe: the DML
+   * iterator recycles its own allocator at the end of every row batch, which
+   * would otherwise free the tokenizer while it is still cached.
+   */
+  mutable common::ObArenaAllocator iter_alloc_;
+  /**
+   * Collation the cached iterator was built with. A tokenizer is bound to one
+   * collation, so a different collation requires a rebuild.
+   */
+  mutable ObCollationType cached_coll_type_ = CS_TYPE_INVALID;
   bool is_inited_;
 
 private:

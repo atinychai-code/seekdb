@@ -34,7 +34,6 @@ int ObFTDictHub::init()
   int ret = OB_SUCCESS;
   if (OB_FAIL(dict_map_.create(K_MAX_DICT_BUCKET, "dict_map"))) {
   } else if (OB_FAIL(rw_dict_lock_.init(K_MAX_DICT_BUCKET))) {
-  } else if (OB_FAIL(shared_dict_map_.create(K_MAX_DICT_BUCKET, "shared_dict_map"))) {
   } else {
     is_inited_ = true;
   }
@@ -47,73 +46,6 @@ int ObFTDictHub::destroy()
   is_inited_ = false;
   return ret;
 }
-
-int ObFTDictHub::get_shared_dict(const ObFTDictDesc &desc, const ObIFTDict *&dict)
-{
-  int ret = OB_SUCCESS;
-  ObFTDictInfoKey key(static_cast<uint64_t>(desc.type_));
-  const ObIFTDict *tmp = nullptr;
-  dict = nullptr;
-  if (OB_UNLIKELY(!is_inited_)) {
-    ret = OB_NOT_INIT;
-  } else {
-    {
-      common::ObSpinLockGuard guard(shared_dict_lock_);
-      if (OB_FAIL(shared_dict_map_.get_refactored(key, tmp)) && OB_HASH_NOT_EXIST != ret) {
-      } else if (OB_SUCC(ret) && OB_NOT_NULL(tmp)) {
-        dict = tmp;
-      } else {
-        ret = OB_SUCCESS;
-      }
-    }
-    if (OB_SUCC(ret) && OB_ISNULL(dict)) {
-      const ObIFTDict *built = nullptr;
-      if (OB_FAIL(build_shared_dict(desc, built))) {
-      } else {
-        common::ObSpinLockGuard guard(shared_dict_lock_);
-        const ObIFTDict *existing = nullptr;
-        if (OB_SUCCESS == shared_dict_map_.get_refactored(key, existing) && OB_NOT_NULL(existing)) {
-          // another thread won the race, reuse its dict
-          dict = existing;
-        } else if (OB_FAIL(shared_dict_map_.set_refactored(key, built))) {
-        } else {
-          dict = built;
-        }
-      }
-    }
-  }
-  return ret;
-}
-
-int ObFTDictHub::build_shared_dict(const ObFTDictDesc &desc, const ObIFTDict *&dict)
-{
-  int ret = OB_SUCCESS;
-  ObFTCacheRangeContainer *container = nullptr;
-  ObFTRangeDict *range_dict = nullptr;
-  dict = nullptr;
-  if (OB_ISNULL(container = OB_NEWx(ObFTCacheRangeContainer,
-                                    &shared_dict_alloc_,
-                                    shared_dict_alloc_))) {
-    ret = OB_ALLOCATE_MEMORY_FAILED;
-  } else if (OB_FAIL(build_cache(desc, *container))) {
-  } else if (OB_ISNULL(range_dict = OB_NEWx(ObFTRangeDict,
-                                            &shared_dict_alloc_,
-                                            shared_dict_alloc_,
-                                            container,
-                                            desc))) {
-    ret = OB_ALLOCATE_MEMORY_FAILED;
-  } else if (OB_FAIL(range_dict->init())) {
-    range_dict->~ObFTRangeDict();
-    shared_dict_alloc_.free(range_dict);
-  } else {
-    dict = range_dict;
-    // NOTE: container is intentionally kept alive for the lifetime of the
-    // process: its KV handles pin the cached DAT blocks referenced by the
-    // shared dict, so eviction cannot invalidate them.
-  }
-  return ret;
-}
-
 int ObFTDictHub::build_cache(const ObFTDictDesc &desc, ObFTCacheRangeContainer &container)
 {
   int ret = OB_SUCCESS;
