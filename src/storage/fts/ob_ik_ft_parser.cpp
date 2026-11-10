@@ -231,13 +231,11 @@ int ObIKFTParserDesc::get_add_word_flag(ObAddWordFlag &flag) const
 int ObIKFTParser::init_dict(const ObFTParserParam &param)
 {
   int ret = OB_SUCCESS;
-  ObIFTDict *tmp_dict = nullptr;
 
   if (OB_ISNULL(hub_)) {
     ret = OB_ERR_UNEXPECTED;
   }
 
-  ObFTRangeDict *dict = nullptr;
   ObFTDictDesc main_dict_desc("main_dict",
                               ObFTDictType::DICT_IK_MAIN,
                               ObCharsetType::CHARSET_UTF8MB4,
@@ -256,17 +254,22 @@ int ObIKFTParser::init_dict(const ObFTParserParam &param)
   if (should_read_newest_table()) {
     // clear dict cache, always false now
   } else {
-    if (OB_FAIL(init_single_dict(main_dict_desc, cache_main_))) {
-    } else if (OB_FAIL(init_single_dict(quan_dict_desc, cache_quan_))) {
-    } else if (OB_FAIL(init_single_dict(stopword_dict_desc, cache_stop_))) {
+    const ObIFTDict *shared_main = nullptr;
+    const ObIFTDict *shared_quan = nullptr;
+    const ObIFTDict *shared_stop = nullptr;
+    if (OB_FAIL(hub_->get_shared_dict(main_dict_desc, shared_main))) {
+    } else if (OB_FAIL(hub_->get_shared_dict(quan_dict_desc, shared_quan))) {
+    } else if (OB_FAIL(hub_->get_shared_dict(stopword_dict_desc, shared_stop))) {
+    } else {
+      // Process-wide shared, read-only dictionaries: built once in the hub
+      // and reused by every parser, so per-parser dict construction (the
+      // main cost of tokenize/query index-build hot paths) disappears.
+      // This parser does NOT own these objects.
+      dict_main_ = const_cast<ObIFTDict *>(shared_main);
+      dict_quan_ = const_cast<ObIFTDict *>(shared_quan);
+      dict_stop_ = const_cast<ObIFTDict *>(shared_stop);
+      owns_dict_ = false;
     }
-  }
-
-  if (OB_FAIL(ret)) {
-    // already logged.
-  } else if (OB_FAIL(build_dict_from_cache(main_dict_desc, cache_main_, dict_main_))) {
-  } else if (OB_FAIL(build_dict_from_cache(quan_dict_desc, cache_quan_, dict_quan_))) {
-  } else if (OB_FAIL(build_dict_from_cache(stopword_dict_desc, cache_stop_, dict_stop_))) {
   }
 
   return ret;
@@ -386,18 +389,24 @@ void ObIKFTParser::reset()
   cache_quan_.reset();
   cache_stop_.reset();
 
-  if (!OB_ISNULL(dict_main_)) {
-    dict_main_->~ObIFTDict();
-    allocator_.free(dict_main_);
+  if (owns_dict_) {
+    if (!OB_ISNULL(dict_main_)) {
+      dict_main_->~ObIFTDict();
+      allocator_.free(dict_main_);
+    }
+    if (!OB_ISNULL(dict_quan_)) {
+      dict_quan_->~ObIFTDict();
+      allocator_.free(dict_quan_);
+    }
+    if (!OB_ISNULL(dict_stop_)) {
+      dict_stop_->~ObIFTDict();
+      allocator_.free(dict_stop_);
+    }
   }
-  if (!OB_ISNULL(dict_quan_)) {
-    dict_quan_->~ObIFTDict();
-    allocator_.free(dict_quan_);
-  }
-  if (!OB_ISNULL(dict_stop_)) {
-    dict_stop_->~ObIFTDict();
-    allocator_.free(dict_stop_);
-  }
+  dict_main_ = nullptr;
+  dict_quan_ = nullptr;
+  dict_stop_ = nullptr;
+  owns_dict_ = true;
 
   is_inited_ = false;
 }

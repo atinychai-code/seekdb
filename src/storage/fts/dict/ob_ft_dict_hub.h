@@ -19,6 +19,8 @@
 
 #include "lib/charset/ob_charset.h"
 #include "lib/lock/ob_bucket_lock.h"
+#include "lib/allocator/page_arena.h"
+#include "lib/lock/ob_spin_lock.h"
 #include "storage/fts/dict/ob_ft_dict_def.h"
 
 namespace oceanbase
@@ -27,6 +29,8 @@ namespace storage
 {
 // typedef uint64_t ObFTTableID;
 // typedef ObFTTableID ObFTDictTableID;
+
+class ObIFTDict;
 
 class ObFTDictInfo
 {
@@ -107,17 +111,28 @@ public:
 
   int load_cache(const ObFTDictDesc &desc, ObFTCacheRangeContainer &container);
 
+  // Returns a process-wide shared, read-only dictionary for the given desc.
+  // The dictionary object is built once (first call) and reused by all
+  // parsers afterwards, avoiding the per-parser DAT wrapper construction on
+  // the tokenize/query/build hot paths. Caller must NOT free the returned dict.
+  int get_shared_dict(const ObFTDictDesc &desc, const ObIFTDict *&dict);
+
 private:
   int get_dict_info(const ObFTDictInfoKey &key, ObFTDictInfo &info);
 
   int put_dict_info(const ObFTDictInfoKey &key, const ObFTDictInfo &info);
 
+  int build_shared_dict(const ObFTDictDesc &desc, const ObIFTDict *&dict);
 
 private:
   bool is_inited_;
   // holds info of dict
   hash::ObHashMap<ObFTDictInfoKey, ObFTDictInfo> dict_map_;
   ObBucketLock rw_dict_lock_;
+  // process-wide shared dict objects (owned here, never freed by parsers)
+  hash::ObHashMap<ObFTDictInfoKey, const ObIFTDict *> shared_dict_map_;
+  common::ObArenaAllocator shared_dict_alloc_;
+  common::ObSpinLock shared_dict_lock_;
 };
 
 } //  namespace storage
